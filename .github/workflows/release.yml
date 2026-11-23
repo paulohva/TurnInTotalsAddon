@@ -1,0 +1,101 @@
+name: Release
+
+# Merging a release PR into main deploys it: the CurseForge upload, then the GitHub release (and
+# its vX.Y.Z tag). The version is the first "## X.Y.Z" heading of CHANGELOG.md. If that version's
+# tag already exists (a PR that isn't a release), nothing happens. It can also be run by hand
+# (Actions > Release > Run workflow) for the version at the top of main's changelog; as the tag
+# is made last, a run that failed half way can simply be run again.
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  release:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      COMMIT: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.COMMIT }}
+          fetch-depth: 0
+
+      - name: Version from the changelog
+        id: version
+        run: |
+          version=$(sed -nE 's/^## ([0-9]+\.[0-9]+\.[0-9]+)[[:space:]]*$/\1/p' CHANGELOG.md | head -n 1)
+          if [ -z "$version" ]; then
+            echo "No '## X.Y.Z' heading in CHANGELOG.md: nothing to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "v$version is already released: nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Releasing $version"
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Notes and version
+        if: steps.version.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # this version's section only, headed "## vX.Y.Z" (the CurseForge notes style of this addon)
+          awk -v head="## $VERSION" '$0 == head { on = 1; print "## v" substr(head, 4); next } on && /^## / { exit } on' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md"
+          # the version in the game without the tag's "v" (as in the zips made by hand)
+          sed -i "s/@project-version@/$VERSION/g" TurnInTotals.toc
+
+      # The zip only (no CF_API_KEY / GITHUB_OAUTH here: the uploads are ours, below; the
+      # packager would turn the spaces of the CurseForge display name into underscores).
+      - name: Package
+        if: steps.version.outputs.skip != 'true'
+        uses: BigWigsMods/packager@v2
+        with:
+          args: -n "TurnInTotals-v${{ steps.version.outputs.version }}"
+
+      # As uploaded by hand: display name "Turn-in Totals X.Y.Z", the game version from the
+      # .toc's Interface (16001 -> 1.60.1, WoW Forever), release type Release, the notes in markdown.
+      - name: Upload to CurseForge
+        if: steps.version.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+        run: |
+          project=$(sed -nE 's/^## X-Curse-Project-ID:[[:space:]]*([0-9]+).*/\1/p' TurnInTotals.toc)
+          interface=$(sed -nE 's/^## Interface:[[:space:]]*([0-9]+).*/\1/p' TurnInTotals.toc)
+          gamever="$((interface / 10000)).$(((interface / 100) % 100)).$((interface % 100))"
+          versions=$(curl -sS --fail-with-body -H "X-Api-Token: $CF_API_KEY" https://wow.curseforge.com/api/game/versions)
+          ids=$(echo "$versions" | jq -c --arg n "$gamever" '[.[] | select(.name == $n) | .id]')
+          echo "project $project, game version $gamever -> $ids"
+          if [ "$(echo "$ids" | jq length)" != "1" ]; then
+            echo "Expected exactly one CurseForge game version named $gamever:"
+            echo "$versions" | jq -c --arg n "$gamever" '.[] | select(.name == $n)'
+            exit 1
+          fi
+          metadata=$(jq -n --rawfile changelog "$RUNNER_TEMP/notes.md" --arg name "Turn-in Totals $VERSION" \
+            --argjson ids "$ids" \
+            '{changelog: $changelog, changelogType: "markdown", displayName: $name, gameVersions: $ids, releaseType: "release"}')
+          echo "$metadata" | jq '{displayName, gameVersions, releaseType}'
+          curl -sS --fail-with-body -H "X-Api-Token: $CF_API_KEY" \
+            --form-string "metadata=$metadata" \
+            -F "file=@.release/TurnInTotals-v$VERSION.zip" \
+            "https://wow.curseforge.com/api/projects/$project/upload-file"
+          echo
+
+      # last: the GitHub release, which also makes the vX.Y.Z tag on the merged commit
+      - name: GitHub release
+        if: steps.version.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          zip=".release/TurnInTotals-v$VERSION.zip"
+          { cat "$RUNNER_TEMP/notes.md"; echo; echo "### Install"; echo "Download **TurnInTotals-v$VERSION.zip** below and extract it into your **_forever_/Interface/AddOns** folder."; } > "$RUNNER_TEMP/release.md"
+          gh release create "v$VERSION" "$zip" --target "$COMMIT" --title "Turn-in Totals $VERSION" --notes-file "$RUNNER_TEMP/release.md"

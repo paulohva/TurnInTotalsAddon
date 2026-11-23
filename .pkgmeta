@@ -1,0 +1,17 @@
+package-as: TurnInTotals
+
+enable-nolib-creation: no
+
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+
+ignore:
+  - .github
+  - .gitignore
+  - .gitattributes
+  - .editorconfig
+  - .pkgmeta
+  - CONTRIBUTING.md
+  - CHANGELOG.md
+  - README.md

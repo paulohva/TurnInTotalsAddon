@@ -1,0 +1,14 @@
+## Interface: 16001
+## Title: Turn-in Totals
+## Notes: Shows the total XP and gold of the quests that are ready to turn in, at the top of the quest log.
+## Notes-ptBR: Mostra o total de XP e ouro das missões prontas para entregar, no topo do registro de missões.
+## Author: zul_moletom
+## Version: @project-version@
+## X-License: MIT
+## X-Website: https://github.com/paulohva/TurnInTotalsAddon
+## X-Curse-Project-ID: 1826942
+## Category: Quests
+## SavedVariables: TurnInTotalsDB
+## IconTexture: Interface\AddOns\TurnInTotals\Media\Icon
+
+Core.lua

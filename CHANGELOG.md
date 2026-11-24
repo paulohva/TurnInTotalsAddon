@@ -4,6 +4,11 @@ All notable changes to Turn-in Totals are listed here.
 
 ## Unreleased
 
+## 1.1.0
+
+- Hover over the totals line for the list of the quests that are ready to turn in, each with its
+  level (in the quest log's difficulty colors) and its own XP and gold.
+
 ## 1.0.0
 
 - First release: at the top of the quest log, the number of quests ready to turn in and the total XP

@@ -29,9 +29,11 @@ local function IsReady(questID)
 	return Call(C_QuestLog.IsComplete, questID) and true or false
 end
 
--- totals over the whole log (ignores the search box filter)
+-- totals over the whole log (ignores the search box filter), plus each quest
+-- in log order: { title, level, xp, money }
 local function Collect()
 	local count, xp, money, pending = 0, 0, 0, false
+	local list = {}
 	local numEntries = Call(C_QuestLog.GetNumQuestLogEntries) or 0
 	for index = 1, numEntries do
 		local info = Call(C_QuestLog.GetInfo, index)
@@ -42,11 +44,14 @@ local function Collect()
 				pending = true
 				Call(C_QuestLog.RequestLoadQuestByID, questID)
 			end
-			xp = xp + (Call(GetQuestLogRewardXP, questID) or 0)
-			money = money + (Call(GetQuestLogRewardMoney, questID) or 0)
+			local questXP = Call(GetQuestLogRewardXP, questID) or 0
+			local questMoney = Call(GetQuestLogRewardMoney, questID) or 0
+			xp = xp + questXP
+			money = money + questMoney
+			table.insert(list, { title = info.title or ("#" .. questID), level = info.level, xp = questXP, money = questMoney })
 		end
 	end
-	return count, xp, money, pending
+	return count, xp, money, pending, list
 end
 
 local function FormatMoney(copper)
@@ -92,21 +97,44 @@ local function ShiftList(shift)
 	end
 end
 
+-- "8,935 XP   1g 23s" (empty parts left out)
+local function Rewards(xp, money, empty)
+	local parts = {}
+	if xp > 0 then table.insert(parts, FormatNumber(xp) .. " XP") end
+	if money > 0 then table.insert(parts, FormatMoney(money)) end
+	if #parts == 0 then return empty end
+	return table.concat(parts, "   ")
+end
+
+-- the finished quests, each with its own rewards; to the left of the row, over the map
+local function ShowTooltip()
+	local quests = line.quests
+	if not quests or #quests == 0 then return end
+	GameTooltip:SetOwner(line, "ANCHOR_NONE")
+	GameTooltip:ClearAllPoints()
+	GameTooltip:SetPoint("TOPRIGHT", line, "TOPLEFT", -8, 0)
+	GameTooltip:SetText(L.label)
+	for _, q in ipairs(quests) do
+		local color = q.level and GetQuestDifficultyColor and GetQuestDifficultyColor(q.level) or HIGHLIGHT_FONT_COLOR
+		local title = q.level and ("[%d] %s"):format(q.level, q.title) or q.title
+		GameTooltip:AddDoubleLine(title, Rewards(q.xp, q.money, ""), color.r, color.g, color.b, 1, 1, 1)
+	end
+	GameTooltip:Show()
+end
+
 local function Refresh()
 	if not (enabled and line) then return end
-	local count, xp, money, pending = Collect()
+	local count, xp, money, pending, list = Collect()
+	line.quests = list
 
 	if count > 0 then
-		local parts = {}
-		if xp > 0 then table.insert(parts, FormatNumber(xp) .. " XP") end
-		if money > 0 then table.insert(parts, FormatMoney(money)) end
-		if #parts == 0 then table.insert(parts, pending and "..." or "-") end
 		line.Label:SetFormattedText("%s (%d %s)", L.label, count, count == 1 and L.quest or L.quests)
-		line.Value:SetText(table.concat(parts, "   "))
+		line.Value:SetText(Rewards(xp, money, pending and "..." or "-"))
 		if not line:IsShown() then
 			line:Show()
 			ShiftList(ROW_HEIGHT)
 		end
+		if GameTooltip:IsOwned(line) then ShowTooltip() end
 	elseif line:IsShown() then
 		line:Hide()
 		ShiftList(0)
@@ -132,6 +160,10 @@ local function CreateLine(parent)
 	line.Value:SetPoint("RIGHT", -4, 0)
 	line.Value:SetJustifyH("LEFT")
 	line.Value:SetWordWrap(false)
+
+	line:EnableMouse(true)
+	line:SetScript("OnEnter", ShowTooltip)
+	line:SetScript("OnLeave", function() GameTooltip:Hide() end)
 end
 
 local function Install()

@@ -8,6 +8,7 @@ Ready to turn in (6 quests)
 8,935 XP   1g 23s 45c
 ```
 
+- Hover over the line for the list of those quests, each with its own XP and gold.
 - Counts every quest in your log that is ready to turn in, whatever the search box shows.
 - Shows nothing when no quest is ready. At the maximum level only the gold shows.
 - Doesn't touch the quest list itself: the line sits above the search box, and the list moves down
